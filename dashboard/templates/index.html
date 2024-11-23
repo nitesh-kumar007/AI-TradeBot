@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Advanced Trading Bot</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <style>
+      body {
+        background: linear-gradient(to right, #4facfe, #00f2fe);
+        font-family: "Arial", sans-serif;
+        color: white;
+        text-align: center;
+        padding: 20px;
+      }
+
+      .chart-container {
+        width: 80%;
+        max-width: 900px;
+        margin: 20px auto;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 10px;
+      }
+
+      canvas {
+        width: 100%;
+        height: 300px;
+      }
+
+      input[type="number"],
+      select,
+      button {
+        margin: 10px;
+        padding: 10px;
+        border-radius: 5px;
+        border: none;
+        font-size: 14px;
+      }
+
+      button {
+        background-color: #28a745;
+        color: white;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background-color: #218838;
+      }
+
+      .status {
+        font-size: 18px;
+        margin-top: 20px;
+        padding: 10px;
+        background: rgba(0, 0, 0, 0.5);
+        border-radius: 5px;
+      }
+
+      .trade-history {
+        margin-top: 30px;
+        padding: 10px;
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 10px;
+        max-width: 700px;
+        margin: auto;
+      }
+
+      .slider {
+        display: none; /* Initially hidden */
+        width: 80%;
+        margin: 20px auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Advanced Trading Bot</h1>
+
+    <!-- User Balance Input -->
+    <label for="userBalance">Enter Starting Balance ($):</label>
+    <input type="number" id="userBalance" value="1000" />
+
+    <!-- Currency Pair Selection -->
+    <label for="currencySelect">Select Currency Pair:</label>
+    <select id="currencySelect">
+      <option value="bitcoin">Bitcoin (BTC/USD)</option>
+      <option value="ethereum">Ethereum (ETH/USD)</option>
+    </select>
+
+    <!-- Amount to Trade -->
+    <label for="tradeAmount">Amount to Trade ($):</label>
+    <input type="number" id="tradeAmount" value="100" min="1" />
+
+    <!-- Buttons -->
+    <button id="startBotBtn">Start Trading Bot</button>
+    <button id="stopBotBtn" style="display: none">Stop Trading Bot</button>
+
+    <!-- Chart Canvas -->
+    <div class="chart-container">
+      <canvas id="priceChart"></canvas>
+    </div>
+
+    <!-- Trading Status -->
+    <div class="status" id="botStatus">Bot Status: Inactive</div>
+
+    <!-- Trade History -->
+    <div class="trade-history" id="tradeHistory">
+      <h3>Trade History</h3>
+      <div id="historyContent"></div>
+    </div>
+
+    <!-- Slider -->
+    <div class="slider">
+      <label for="timeSlider">Select Time Range (in seconds):</label>
+      <input type="range" id="timeSlider" min="10" max="100" value="50" />
+      <span id="sliderValue">50 seconds</span>
+    </div>
+
+    <script>
+      const socket = io.connect();
+      let totalProfitLoss = 0;
+
+      const ctx = document.getElementById("priceChart").getContext("2d");
+      const priceChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: "Price",
+              data: [],
+              borderColor: "rgba(75, 192, 192, 1)",
+              backgroundColor: "rgba(75, 192, 192, 0.5)",
+              borderWidth: 2,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: "Time" } },
+            y: { title: { display: true, text: "Price" } },
+          },
+        },
+      });
+
+      // Slider visibility after 50 seconds
+      setTimeout(() => {
+        document.querySelector(".slider").style.display = "block";
+      }, 50000);
+
+      document
+        .getElementById("timeSlider")
+        .addEventListener("input", function () {
+          document.getElementById(
+            "sliderValue"
+          ).innerText = `${this.value} seconds`;
+        });
+
+      // Update Chart with Prices
+      socket.on("price_update", (data) => {
+        const { price, time } = data;
+
+        if (price > 0) {
+          // Only update chart with valid prices
+          priceChart.data.labels.push(time);
+          priceChart.data.datasets[0].data.push(price);
+
+          if (priceChart.data.labels.length > 100) {
+            priceChart.data.labels.shift();
+            priceChart.data.datasets[0].data.shift();
+          }
+          priceChart.update();
+        }
+      });
+
+      // Start Bot
+      document
+        .getElementById("startBotBtn")
+        .addEventListener("click", function () {
+          const tradeAmount = document.getElementById("tradeAmount").value;
+          const userBalance = document.getElementById("userBalance").value;
+
+          if (!userBalance || userBalance <= 0) {
+            alert("Please enter a valid starting balance!");
+            return;
+          }
+
+          socket.emit("start_bot", {
+            amount: tradeAmount,
+            balance: userBalance,
+          });
+          document.getElementById("botStatus").innerText = "Bot Status: Active";
+          document.getElementById("startBotBtn").style.display = "none";
+          document.getElementById("stopBotBtn").style.display = "inline";
+        });
+
+      // Stop Bot
+      document
+        .getElementById("stopBotBtn")
+        .addEventListener("click", function () {
+          socket.emit("stop_bot");
+        });
+
+      // Trade History Updates
+      socket.on("trade_update", (tradeData) => {
+        const historyContent = document.getElementById("historyContent");
+        const tradeElement = document.createElement("p");
+        tradeElement.innerText = `Bought at: ${tradeData.purchasedPrice} | Sold at: ${tradeData.soldPrice} | Profit/Loss: ${tradeData.profitLoss}`;
+        totalProfitLoss += tradeData.profitLoss;
+        historyContent.appendChild(tradeElement);
+      });
+
+      // Bot Stopped: Show Total Profit/Loss
+      socket.on("bot_stopped", (finalProfitLoss) => {
+        document.getElementById(
+          "botStatus"
+        ).innerText = `Bot Status: Stopped | Total Profit/Loss: ${finalProfitLoss}`;
+        document.getElementById("stopBotBtn").style.display = "none";
+        document.getElementById("startBotBtn").style.display = "inline";
+      });
+    </script>
+  </body>
+</html>
