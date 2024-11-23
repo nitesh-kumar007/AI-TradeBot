@@ -144,57 +144,70 @@
         },
       });
 
-      // Listen for changes in currency selection
-      document
-        .getElementById("currencySelect")
-        .addEventListener("change", function () {
-          const selectedCurrency = this.value;
-          socket.emit("change_currency", { currency: selectedCurrency });
-          // Clear the chart data and reset labels when currency changes
-          priceChart.data.labels = [];
-          priceChart.data.datasets[0].data = [];
-          priceChart.update();
-        });
-
       // Slider visibility after 50 seconds
       setTimeout(() => {
         document.querySelector(".slider").style.display = "block";
-      }, 10000);
+      }, 50000);
 
-      // Listen for price updates
-      socket.on("price_update", function (data) {
-        const { time, price } = data;
-        priceChart.data.labels.push(time);
-        priceChart.data.datasets[0].data.push(price);
+      document
+        .getElementById("timeSlider")
+        .addEventListener("input", function () {
+          document.getElementById(
+            "sliderValue"
+          ).innerText = `${this.value} seconds`;
+        });
+
+      // Update Chart with Prices
+      socket.on("price_update", (data) => {
+        priceChart.data.labels.push(data.time);
+        priceChart.data.datasets[0].data.push(data.price);
+
+        if (priceChart.data.labels.length > 100) {
+          priceChart.data.labels.shift();
+          priceChart.data.datasets[0].data.shift();
+        }
+
         priceChart.update();
       });
 
-      // Start/Stop trading bot
+      // Start Bot
       document.getElementById("startBotBtn").addEventListener("click", () => {
         const amount = document.getElementById("tradeAmount").value;
-        socket.emit("start_bot", { amount });
+        const currency = document.getElementById("currencySelect").value;
+
+        socket.emit("start_bot", {
+          amount: amount,
+          currency: currency,
+          single_trade: false,
+        });
+
         document.getElementById("startBotBtn").style.display = "none";
         document.getElementById("stopBotBtn").style.display = "inline-block";
+        document.getElementById("botStatus").innerText = "Bot Status: Active";
       });
 
+      // Stop Bot
       document.getElementById("stopBotBtn").addEventListener("click", () => {
         socket.emit("stop_bot");
-        document.getElementById("stopBotBtn").style.display = "none";
         document.getElementById("startBotBtn").style.display = "inline-block";
+        document.getElementById("stopBotBtn").style.display = "none";
+        document.getElementById(
+          "botStatus"
+        ).innerText = `Bot Stopped. Profit/Loss: $${totalProfitLoss}`;
       });
 
-      // Listen for trade history updates
-      socket.on("trade_update", function (data) {
-        const { purchasedPrice, soldPrice, profitLoss } = data;
-        totalProfitLoss += profitLoss;
-        const historyContent = `
-        <div>
-          Purchased: $${purchasedPrice} | Sold: $${soldPrice} | Profit/Loss: $${profitLoss.toFixed(
-          2
-        )}
-        </div>
-      `;
-        document.getElementById("historyContent").innerHTML = historyContent;
+      socket.on("bot_stopped", (final_profit_loss) => {
+        totalProfitLoss = final_profit_loss;
+        document.getElementById(
+          "botStatus"
+        ).innerText = `Bot Stopped. Profit/Loss: $${totalProfitLoss}`;
+      });
+
+      socket.on("trade_update", (data) => {
+        const historyContent = document.getElementById("historyContent");
+        const tradeDetails = document.createElement("div");
+        tradeDetails.innerText = `Bought at $${data.purchasedPrice}, Sold at $${data.soldPrice}, Profit/Loss: $${data.profitLoss}`;
+        historyContent.appendChild(tradeDetails);
       });
     </script>
   </body>
