@@ -136,6 +136,7 @@
             },
           ],
         },
+
         options: {
           responsive: true,
           scales: {
@@ -151,6 +152,7 @@
         .addEventListener("change", function () {
           const selectedCurrency = this.value;
           socket.emit("change_currency", { currency: selectedCurrency });
+
           // Clear the chart data and reset labels when currency changes
           priceChart.data.labels = [];
           priceChart.data.datasets[0].data = [];
