@@ -21,7 +21,7 @@
         max-width: 900px;
         margin: 20px auto;
         padding: 10px;
-        background: rgba(255, 255, 255, 0.9);
+        background: rgba(1, 154, 255, 0.9);
         border-radius: 10px;
       }
 
@@ -66,12 +66,6 @@
         max-width: 700px;
         margin: auto;
       }
-
-      .slider {
-        display: none; /* Initially hidden */
-        width: 80%;
-        margin: 20px auto;
-      }
     </style>
   </head>
   <body>
@@ -110,69 +104,122 @@
       <div id="historyContent"></div>
     </div>
 
-    <!-- Slider -->
-    <div class="slider">
-      <label for="timeSlider">Select Time Range (in seconds):</label>
-      <input type="range" id="timeSlider" min="10" max="100" value="50" />
-      <span id="sliderValue">50 seconds</span>
-    </div>
-
     <script>
       const socket = io.connect();
-      let totalProfitLoss = 0;
-
       const ctx = document.getElementById("priceChart").getContext("2d");
+
+      // Chart.js configuration
       const priceChart = new Chart(ctx, {
         type: "line",
         data: {
-          labels: [],
+          labels: [], // Time labels
           datasets: [
             {
               label: "Price",
               data: [],
-              borderColor: "rgba(75, 192, 192, 1)",
-              backgroundColor: "rgba(75, 192, 192, 0.5)",
+              borderColor: "rgba(255, 165, 0, 1)", // Bright orange for contrast
+              backgroundColor: "rgba(255, 165, 0, 0.2)", // Light orange Shadow effect
               borderWidth: 2,
+              fill: "origin", // Enable shadow below the line
+              tension: 0.4, // Smooth the line curve
             },
           ],
         },
-
         options: {
           responsive: true,
+          plugins: {
+            tooltip: {
+              enabled: true,
+              callbacks: {
+                label: function (context) {
+                  const price = context.raw; // Current data point
+                  return `Price: $${price.toFixed(2)}`;
+                },
+              },
+            },
+          },
           scales: {
-            x: { title: { display: true, text: "Time" } },
-            y: { title: { display: true, text: "Price" } },
+            x: {
+              title: {
+                display: true,
+                text: "Time",
+                color: "white",
+              },
+              ticks: {
+                color: "white",
+              },
+            },
+            y: {
+              title: {
+                display: true,
+                text: "Price",
+                color: "white",
+              },
+              ticks: {
+                color: "white",
+              },
+            },
+          },
+          interaction: {
+            mode: "index",
+            intersect: false, // Tooltip appears even when not directly on a point
+            axis: "xy", // Show tooltip for both axes
+          },
+          hover: {
+            mode: "nearest", // Show hover effect near the closest data point
+            intersect: false, // Tooltip appears even if not directly on a point
+          },
+          onHover: function (event, chartElement) {
+            if (chartElement.length > 0) {
+              // If the hover is over a data point, show a cursor line
+              const index = chartElement[0].index;
+              const xValue = priceChart.data.labels[index];
+              const yValue = priceChart.data.datasets[0].data[index];
+
+              // Highlight the hovered data point with a dotted line (vertical line)
+              const chartArea = priceChart.chartArea;
+              const xPos = priceChart.scales.x.getPixelForValue(xValue);
+              const yPos = priceChart.scales.y.getPixelForValue(yValue);
+
+              const ctx = priceChart.ctx;
+              ctx.save();
+              ctx.beginPath();
+              ctx.setLineDash([5, 5]); // Dotted line
+              ctx.moveTo(xPos, chartArea.top);
+              ctx.lineTo(xPos, chartArea.bottom);
+              ctx.strokeStyle = "rgba(255, 99, 132, 1)";
+              ctx.lineWidth = 1;
+              ctx.stroke();
+              ctx.restore();
+            }
           },
         },
       });
 
-      // Listen for changes in currency selection
+      // Handle currency selection
       document
         .getElementById("currencySelect")
         .addEventListener("change", function () {
           const selectedCurrency = this.value;
           socket.emit("change_currency", { currency: selectedCurrency });
 
-          // Clear the chart data and reset labels when currency changes
+          // Reset chart data
           priceChart.data.labels = [];
           priceChart.data.datasets[0].data = [];
           priceChart.update();
         });
 
-      // Slider visibility after 50 seconds
-      setTimeout(() => {
-        document.querySelector(".slider").style.display = "block";
-      }, 10000);
-
-      // Listen for price updates
+      // Receive price updates from the server
       socket.on("price_update", function (data) {
         const { time, price } = data;
+
+        // Update chart data
         priceChart.data.labels.push(time);
         priceChart.data.datasets[0].data.push(price);
         priceChart.update();
       });
 
-      // Start/Stop trading bot
+      // Start trading bot
       document.getElementById("startBotBtn").addEventListener("click", () => {
         const amount = document.getElementById("tradeAmount").value;
         socket.emit("start_bot", { amount });
@@ -180,24 +227,60 @@
         document.getElementById("stopBotBtn").style.display = "inline-block";
       });
 
+      // Stop trading bot
       document.getElementById("stopBotBtn").addEventListener("click", () => {
         socket.emit("stop_bot");
         document.getElementById("stopBotBtn").style.display = "none";
         document.getElementById("startBotBtn").style.display = "inline-block";
       });
 
-      // Listen for trade history updates
-      socket.on("trade_update", function (data) {
-        const { purchasedPrice, soldPrice, profitLoss } = data;
-        totalProfitLoss += profitLoss;
-        const historyContent = `
-        <div>
-          Purchased: $${purchasedPrice} | Sold: $${soldPrice} | Profit/Loss: $${profitLoss.toFixed(
+      // Update bot status
+      socket.on("bot_status", function (data) {
+        const { status } = data;
+        const statusElement = document.getElementById("botStatus");
+        statusElement.textContent = `Bot Status: ${
+          status.charAt(0).toUpperCase() + status.slice(1)
+        }`;
+        statusElement.style.color = status === "active" ? "limegreen" : "red";
+      });
+      // Listen for trade summary when bot stops
+      socket.on("trade_summary", function (data) {
+        const { total_profit_loss } = data;
+
+        // Display trade summary
+        const summary = document.createElement("div");
+        summary.textContent = `Total Profit/Loss: $${total_profit_loss.toFixed(
           2
-        )}
-        </div>
-      `;
-        document.getElementById("historyContent").innerHTML = historyContent;
+        )}`;
+        summary.style.color = total_profit_loss >= 0 ? "limegreen" : "red";
+        summary.style.fontWeight = "bold";
+        summary.style.marginTop = "20px";
+
+        const tradeHistory = document.getElementById("tradeHistory");
+        tradeHistory.appendChild(summary);
+      });
+
+      // Update trade history
+      socket.on("trade_update", function (data) {
+        const { action, price, profitLoss, balance } = data;
+        const historyContent = document.getElementById("historyContent");
+
+        const tradeEntry = document.createElement("div");
+        tradeEntry.textContent = `${action.toUpperCase()} @ $${price.toFixed(
+          2
+        )} | Profit/Loss: $${profitLoss.toFixed(
+          2
+        )} | Balance: $${balance.toFixed(2)}`;
+        tradeEntry.style.marginBottom = "10px";
+
+        historyContent.prepend(tradeEntry);
+      });
+
+      // Listen for 'clear_chart' event to reset the chart
+      socket.on("clear_chart", () => {
+        priceChart.data.labels = [];
+        priceChart.data.datasets[0].data = [];
+        priceChart.update();
       });
     </script>
   </body>

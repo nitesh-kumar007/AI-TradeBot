@@ -1,245 +1,363 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Advanced Trading Bot</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
-    <style>
-      body {
-        background: linear-gradient(to right, #00438fac, #000000);
-        font-family: "Arial", sans-serif;
-        color: white;
-        overflow-x: hidden;
-        text-align: center;
-        padding: 20px;
-      }
+// import time import random import requests import threading from flask import
+// Flask, render_template from flask_socketio import SocketIO app = Flask(__name__)
+// socketio = SocketIO(app) # Globals bot_running = False trade_history = []
+// available_balance = 1000.0 last_price = 50000.0 # Default price current_currency
+// = "bitcoin" # Default currency simulation_thread = None stop_price_simulation =
+// threading.Event() # Event to signal stopping thread_lock = threading.Lock() #
+// Lock for thread safety price_data = [] # Store price data for moving average
+// calculation short_window = 5 # Short-term moving average window long_window = 15
+// # Long-term moving average window # Fetch live price from API def
+// fetch_live_price(pair): try: url =
+// f"https://api.coingecko.com/api/v3/simple/price?ids={pair}&vs_currencies=usd"
+// response = requests.get(url, headers={"Cache-Control": "no-cache"})
+// response.raise_for_status() return response.json().get(pair, {}).get("usd", 0)
+// except requests.exceptions.RequestException as e: print(f"API Error: {e}")
+// return None # Simulate price changes def simulate_price(): global last_price,
+// current_currency, price_data print(f"Started price simulation for
+// {current_currency}") while not stop_price_simulation.is_set(): live_price =
+// fetch_live_price(current_currency) if live_price: last_price = live_price else:
+// fluctuation = random.uniform(-0.5, 0.5) last_price *= 1 + (fluctuation / 100) #
+// Append price to the data list price_data.append(last_price) if len(price_data) >
+// long_window: price_data.pop(0) # Keep only the required window size current_time
+// = time.strftime("%H:%M:%S") socketio.emit("price_update", { "price":
+// round(last_price, 2), "time": current_time, "currency": current_currency }) if
+// stop_price_simulation.wait(2): break print(f"Stopped price simulation for
+// {current_currency}") # Calculate moving average def
+// calculate_moving_average(data, window): if len(data) < window: return None
+// return sum(data[-window:]) / window # Moving average crossover strategy def
+// moving_average_crossover_strategy(): short_ma =
+// calculate_moving_average(price_data, short_window) long_ma =
+// calculate_moving_average(price_data, long_window) if short_ma and long_ma: if
+// short_ma > long_ma: return "buy" elif short_ma < long_ma: return "sell" return
+// "hold" # Trading bot logic with 2-minute window def trading_bot(trade_amount,
+// pair): global bot_running, available_balance start_time = time.time() # Record
+// start time while bot_running: elapsed_time = time.time() - start_time if
+// elapsed_time > 120: # Stop after 2 minutes print("Trading session completed.")
+// socketio.emit("bot_status", {"status": "completed"}) break time.sleep(5) #
+// Adjust trading interval as needed action = moving_average_crossover_strategy()
+// entry_price = fetch_live_price(pair) if not entry_price: continue if action ==
+// "buy" and available_balance >= trade_amount: qty = trade_amount / entry_price
+// trade_history.append({"action": "buy", "price": entry_price, "qty": qty})
+// available_balance -= trade_amount print(f"Bought {qty:.6f} at
+// ${entry_price:.2f}") elif action == "sell" and trade_history: last_trade =
+// trade_history[-1] if last_trade["action"] == "buy": qty = last_trade["qty"]
+// sold_price = qty * entry_price profit_loss = sold_price - trade_amount
+// available_balance += sold_price trade_history.append({"action": "sell", "price":
+// entry_price, "profitLoss": profit_loss}) print(f"Sold {qty:.6f} at
+// ${entry_price:.2f}, Profit/Loss: ${profit_loss:.2f}")
+// socketio.emit("trade_update", { "action": action, "balance": available_balance,
+// "price": entry_price, "profitLoss": profit_loss if action == "sell" else 0 }) #
+// Send trade summary after the session total_profit_loss = sum(
+// trade.get("profitLoss", 0) for trade in trade_history if trade["action"] ==
+// "sell" ) socketio.emit("trade_summary", {"total_profit_loss":
+// total_profit_loss}) # Restart price simulation thread def
+// restart_price_simulation(): global simulation_thread with thread_lock:
+// stop_price_simulation.set() if simulation_thread and
+// simulation_thread.is_alive(): simulation_thread.join()
+// stop_price_simulation.clear() simulation_thread =
+// threading.Thread(target=simulate_price, daemon=True) simulation_thread.start()
+// @app.route("/") def index(): return render_template("index.html")
+// @socketio.on("change_currency") def change_currency(data): global
+// current_currency pair = data.get("currency", "bitcoin") if pair !=
+// current_currency: current_currency = pair print(f"Currency changed to:
+// {current_currency}") restart_price_simulation() socketio.emit("clear_chart")
+// @socketio.on("start_bot") def start_bot(data): global bot_running bot_running =
+// True trade_amount = float(data.get("amount", 100)) currency_pair =
+// data.get("currency", current_currency) # Use provided currency or fallback
+// socketio.emit("bot_status", {"status": "active"})
+// threading.Thread(target=trading_bot, args=(trade_amount, currency_pair),
+// daemon=True).start() @socketio.on("stop_bot") def stop_bot(): global bot_running
+// bot_running = False # Calculate total profit/loss from trade history
+// total_profit_loss = sum( trade.get("profitLoss", 0) for trade in trade_history
+// if trade["action"] == "sell" ) socketio.emit("bot_status", {"status":
+// "inactive"}) socketio.emit("trade_summary", {"total_profit_loss":
+// total_profit_loss}) if __name__ == "__main__": restart_price_simulation()
+// socketio.run(app, debug=True)
 
-      .chart-container {
-        width: 80%;
-        max-width: 900px;
-        margin: 20px auto;
-        padding: 10px;
-        background: rgba(255, 255, 255, 0.9);
-        border-radius: 10px;
-      }
+// <!DOCTYPE html>
+// <html lang="en">
+//   <head>
+//     <meta charset="UTF-8" />
+//     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+//     <title>Advanced Trading Bot</title>
+//     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+//     <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+//     <style>
+//       body {
+//         background: linear-gradient(to right, #00438fac, #000000);
+//         font-family: "Arial", sans-serif;
+//         color: white;
+//         overflow-x: hidden;
+//         text-align: center;
+//         padding: 20px;
+//       }
 
-      canvas {
-        width: 100%;
-        height: 300px;
-      }
+//       .chart-container {
+//         width: 80%;
+//         max-width: 900px;
+//         margin: 20px auto;
+//         padding: 10px;
+//         background: rgba(1, 154, 255, 0.9);
+//         border-radius: 10px;
+//       }
 
-      input[type="number"],
-      select,
-      button {
-        margin: 10px;
-        padding: 10px;
-        border-radius: 5px;
-        border: none;
-        font-size: 14px;
-      }
+//       canvas {
+//         width: 100%;
+//         height: 300px;
+//       }
 
-      button {
-        background-color: #28a745;
-        color: white;
-        cursor: pointer;
-      }
+//       input[type="number"],
+//       select,
+//       button {
+//         margin: 10px;
+//         padding: 10px;
+//         border-radius: 5px;
+//         border: none;
+//         font-size: 14px;
+//       }
 
-      button:hover {
-        background-color: #218838;
-      }
+//       button {
+//         background-color: #28a745;
+//         color: white;
+//         cursor: pointer;
+//       }
 
-      .status {
-        font-size: 18px;
-        margin-top: 20px;
-        padding: 10px;
-        background: rgba(0, 0, 0, 0.5);
-        border-radius: 5px;
-      }
+//       button:hover {
+//         background-color: #218838;
+//       }
 
-      .trade-history {
-        margin-top: 30px;
-        padding: 10px;
-        background: rgba(0, 0, 0, 0.4);
-        border-radius: 10px;
-        max-width: 700px;
-        margin: auto;
-      }
+//       .status {
+//         font-size: 18px;
+//         margin-top: 20px;
+//         padding: 10px;
+//         background: rgba(0, 0, 0, 0.5);
+//         border-radius: 5px;
+//       }
 
-      .slider {
-        display: none; /* Initially hidden */
-        width: 80%;
-        margin: 20px auto;
-      }
-    </style>
-  </head>
-  <body>
-    <h1>Advanced Trading Bot</h1>
+//       .trade-history {
+//         margin-top: 30px;
+//         padding: 10px;
+//         background: rgba(0, 0, 0, 0.4);
+//         border-radius: 10px;
+//         max-width: 700px;
+//         margin: auto;
+//       }
+//     </style>
+//   </head>
+//   <body>
+//     <h1>Advanced Trading Bot</h1>
 
-    <!-- User Balance Input -->
-    <label for="userBalance">Enter Starting Balance ($):</label>
-    <input type="number" id="userBalance" value="1000" />
+//     <!-- User Balance Input -->
+//     <label for="userBalance">Enter Starting Balance ($):</label>
+//     <input type="number" id="userBalance" value="1000" />
 
-    <!-- Currency Pair Selection -->
-    <label for="currencySelect">Select Currency Pair:</label>
-    <select id="currencySelect">
-      <option value="bitcoin">Bitcoin (BTC/USD)</option>
-      <option value="ethereum">Ethereum (ETH/USD)</option>
-    </select>
+//     <!-- Currency Pair Selection -->
+//     <label for="currencySelect">Select Currency Pair:</label>
+//     <select id="currencySelect">
+//       <option value="bitcoin">Bitcoin (BTC/USD)</option>
+//       <option value="ethereum">Ethereum (ETH/USD)</option>
+//     </select>
 
-    <!-- Amount to Trade -->
-    <label for="tradeAmount">Amount to Trade ($):</label>
-    <input type="number" id="tradeAmount" value="100" min="1" />
+//     <!-- Amount to Trade -->
+//     <label for="tradeAmount">Amount to Trade ($):</label>
+//     <input type="number" id="tradeAmount" value="100" min="1" />
 
-    <!-- Buttons -->
-    <button id="startBotBtn">Start Trading Bot</button>
-    <button id="stopBotBtn" style="display: none">Stop Trading Bot</button>
+//     <!-- Buttons -->
+//     <button id="startBotBtn">Start Trading Bot</button>
+//     <button id="stopBotBtn" style="display: none">Stop Trading Bot</button>
 
-    <!-- Chart Canvas -->
-    <div class="chart-container">
-      <canvas id="priceChart"></canvas>
-    </div>
+//     <!-- Chart Canvas -->
+//     <div class="chart-container">
+//       <canvas id="priceChart"></canvas>
+//     </div>
 
-    <!-- Trading Status -->
-    <div class="status" id="botStatus">Bot Status: Inactive</div>
+//     <!-- Trading Status -->
+//     <div class="status" id="botStatus">Bot Status: Inactive</div>
 
-    <!-- Trade History -->
-    <div class="trade-history" id="tradeHistory">
-      <h3>Trade History</h3>
-      <div id="historyContent"></div>
-    </div>
+//     <!-- Trade History -->
+//     <div class="trade-history" id="tradeHistory">
+//       <h3>Trade History</h3>
+//       <div id="historyContent"></div>
+//     </div>
 
-    <!-- Slider -->
-    <div class="slider">
-      <label for="timeSlider">Select Time Range (in seconds):</label>
-      <input type="range" id="timeSlider" min="10" max="100" value="50" />
-      <span id="sliderValue">50 seconds</span>
-    </div>
+//     <script>
+//       const socket = io.connect();
+//       const ctx = document.getElementById("priceChart").getContext("2d");
 
-    <script>
-      const socket = io.connect();
-      let totalProfitLoss = 0;
+//       // Chart.js configuration
+//       const priceChart = new Chart(ctx, {
+//         type: "line",
+//         data: {
+//           labels: [], // Time labels
+//           datasets: [
+//             {
+//               label: "Price",
+//               data: [],
+//               borderColor: "rgba(255, 165, 0, 1)", // Bright orange for contrast
+//               backgroundColor: "rgba(255, 165, 0, 0.2)", // Light orange Shadow effect
+//               borderWidth: 2,
+//               fill: "origin", // Enable shadow below the line
+//               tension: 0.4, // Smooth the line curve
+//             },
+//           ],
+//         },
+//         options: {
+//           responsive: true,
+//           plugins: {
+//             tooltip: {
+//               enabled: true,
+//               callbacks: {
+//                 label: function (context) {
+//                   const price = context.raw; // Current data point
+//                   return `Price: $${price.toFixed(2)}`;
+//                 },
+//               },
+//             },
+//           },
+//           scales: {
+//             x: {
+//               title: {
+//                 display: true,
+//                 text: "Time",
+//                 color: "white",
+//               },
+//               ticks: {
+//                 color: "white",
+//               },
+//             },
+//             y: {
+//               title: {
+//                 display: true,
+//                 text: "Price",
+//                 color: "white",
+//               },
+//               ticks: {
+//                 color: "white",
+//               },
+//             },
+//           },
+//           interaction: {
+//             mode: "index",
+//             intersect: false, // Tooltip appears even when not directly on a point
+//             axis: "xy", // Show tooltip for both axes
+//           },
+//           hover: {
+//             mode: "nearest", // Show hover effect near the closest data point
+//             intersect: false, // Tooltip appears even if not directly on a point
+//           },
+//           onHover: function (event, chartElement) {
+//             if (chartElement.length > 0) {
+//               // If the hover is over a data point, show a cursor line
+//               const index = chartElement[0].index;
+//               const xValue = priceChart.data.labels[index];
+//               const yValue = priceChart.data.datasets[0].data[index];
 
-      const ctx = document.getElementById("priceChart").getContext("2d");
-      const priceChart = new Chart(ctx, {
-        type: "line",
-        data: {
-          labels: [],
-          datasets: [
-            {
-              label: "Price",
-              data: [],
-              borderColor: "rgba(75, 192, 192, 1)",
-              backgroundColor: "rgba(75, 192, 192, 0.5)",
-              borderWidth: 2,
-            },
-          ],
-        },
+//               // Highlight the hovered data point with a dotted line (vertical line)
+//               const chartArea = priceChart.chartArea;
+//               const xPos = priceChart.scales.x.getPixelForValue(xValue);
+//               const yPos = priceChart.scales.y.getPixelForValue(yValue);
 
-        options: {
-          responsive: true,
-          scales: {
-            x: { title: { display: true, text: "Time" } },
-            y: { title: { display: true, text: "Price" } },
-          },
-        },
-      });
+//               const ctx = priceChart.ctx;
+//               ctx.save();
+//               ctx.beginPath();
+//               ctx.setLineDash([5, 5]); // Dotted line
+//               ctx.moveTo(xPos, chartArea.top);
+//               ctx.lineTo(xPos, chartArea.bottom);
+//               ctx.strokeStyle = "rgba(255, 99, 132, 1)";
+//               ctx.lineWidth = 1;
+//               ctx.stroke();
+//               ctx.restore();
+//             }
+//           },
+//         },
+//       });
 
-      // Listen for changes in currency selection
-      document
-        .getElementById("currencySelect")
-        .addEventListener("change", function () {
-          const selectedCurrency = this.value;
-          socket.emit("change_currency", { currency: selectedCurrency });
+//       // Handle currency selection
+//       document
+//         .getElementById("currencySelect")
+//         .addEventListener("change", function () {
+//           const selectedCurrency = this.value;
+//           socket.emit("change_currency", { currency: selectedCurrency });
 
-          // Clear the chart data and reset labels when currency changes
-          priceChart.data.labels = [];
-          priceChart.data.datasets[0].data = [];
-          priceChart.update();
-        });
+//           // Reset chart data
+//           priceChart.data.labels = [];
+//           priceChart.data.datasets[0].data = [];
+//           priceChart.update();
+//         });
 
-      // Slider visibility after 50 seconds
-      setTimeout(() => {
-        document.querySelector(".slider").style.display = "block";
-      }, 10000);
+//       // Receive price updates from the server
+//       socket.on("price_update", function (data) {
+//         const { time, price } = data;
 
-      // Listen for price updates
-      socket.on("price_update", function (data) {
-        const { time, price } = data;
-        priceChart.data.labels.push(time);
-        priceChart.data.datasets[0].data.push(price);
-        priceChart.update();
-      });
+//         // Update chart data
+//         priceChart.data.labels.push(time);
+//         priceChart.data.datasets[0].data.push(price);
+//         priceChart.update();
+//       });
 
-      // Start/Stop trading bot
-      document.getElementById("startBotBtn").addEventListener("click", () => {
-        const amount = document.getElementById("tradeAmount").value;
-        socket.emit("start_bot", { amount });
-        document.getElementById("startBotBtn").style.display = "none";
-        document.getElementById("stopBotBtn").style.display = "inline-block";
-      });
+//       // Start trading bot
+//       document.getElementById("startBotBtn").addEventListener("click", () => {
+//         const amount = document.getElementById("tradeAmount").value;
+//         socket.emit("start_bot", { amount });
+//         document.getElementById("startBotBtn").style.display = "none";
+//         document.getElementById("stopBotBtn").style.display = "inline-block";
+//       });
 
-      document.getElementById("stopBotBtn").addEventListener("click", () => {
-        socket.emit("stop_bot");
-        document.getElementById("stopBotBtn").style.display = "none";
-        document.getElementById("startBotBtn").style.display = "inline-block";
-      });
+//       // Stop trading bot
+//       document.getElementById("stopBotBtn").addEventListener("click", () => {
+//         socket.emit("stop_bot");
+//         document.getElementById("stopBotBtn").style.display = "none";
+//         document.getElementById("startBotBtn").style.display = "inline-block";
+//       });
 
-      // Listen for trade history updates
-      socket.on("trade_update", function (data) {
-        const { purchasedPrice, soldPrice, profitLoss } = data;
-        totalProfitLoss += profitLoss;
-        const historyContent = `
-        <div>
-          Purchased: $${purchasedPrice} | Sold: $${soldPrice} | Profit/Loss: $${profitLoss.toFixed(
-          2
-        )}
-        </div>
-      `;
-        document.getElementById("historyContent").innerHTML = historyContent;
-      });
-    </script>
-  </body>
-</html>
+//       // Update bot status
+//       socket.on("bot_status", function (data) {
+//         const { status } = data;
+//         const statusElement = document.getElementById("botStatus");
+//         statusElement.textContent = `Bot Status: ${
+//           status.charAt(0).toUpperCase() + status.slice(1)
+//         }`;
+//         statusElement.style.color = status === "active" ? "limegreen" : "red";
+//       });
+//       // Listen for trade summary when bot stops
+//       socket.on("trade_summary", function (data) {
+//         const { total_profit_loss } = data;
 
-import time import random import requests import threading from flask import
-Flask, render_template from flask_socketio import SocketIO app = Flask(__name__)
-socketio = SocketIO(app) bot_running = False trade_history = []
-available_balance = 1000 # Initialize the last price with a realistic value
-last_price = 50000.0 # Default for Bitcoin # Function to fetch live price with
-retry logic def fetch_live_price(pair): try: url =
-f"https://api.coingecko.com/api/v3/simple/price?ids={pair}&vs_currencies=usd"
-response = requests.get(url, headers={"Cache-Control": "no-cache"})
-response.raise_for_status() data = response.json() price = data.get(pair,
-{}).get("usd", 0) print(f"Fetched price for {pair}: {price}") return price
-except requests.exceptions.RequestException as e: print(f"API Error: {e}")
-return None # Simulate dynamic price updates def simulate_price(pair): global
-last_price while True: try: # Attempt to fetch live price live_price =
-fetch_live_price(pair) if live_price is not None and live_price > 0: last_price
-= live_price else: # Simulate fluctuations if live price fails fluctuation =
-random.uniform(-0.5, 0.5) # Up/down by 0.5% last_price *= 1 + (fluctuation /
-100) current_time = time.strftime("%H:%M:%S") socketio.emit("price_update",
-{"price": round(last_price, 2), "time": current_time}) print(f"Updated price:
-{round(last_price, 2)} at {current_time}") except Exception as e: print(f"Error
-in simulate_price: {e}") time.sleep(3) # Update every 3 seconds # Trading bot
-logic def trading_bot(trade_amount, pair, single_trade=False): global
-available_balance, bot_running while bot_running: entry_price =
-fetch_live_price(pair) if entry_price is None or entry_price <= 0:
-print("Invalid entry price. Skipping trade.") time.sleep(5) continue qty =
-trade_amount / entry_price sold_price = entry_price * 1.02 # Simulate 2% profit
-profit_loss = (sold_price - entry_price) * qty available_balance += profit_loss
-trade_history.append( {"purchasedPrice": entry_price, "soldPrice": sold_price,
-"profitLoss": profit_loss} ) socketio.emit( "trade_update", {"purchasedPrice":
-entry_price, "soldPrice": sold_price, "profitLoss": profit_loss}, ) if
-single_trade: bot_running = False break time.sleep(5) @app.route("/") def
-index(): return render_template("index.html") @socketio.on("start_bot") def
-start_bot(data): global bot_running, available_balance bot_running = True
-trade_amount = data.get("amount", 100) currency_pair = data.get("currency",
-"bitcoin") threading.Thread( target=trading_bot, args=(trade_amount,
-currency_pair, data.get("single_trade", False)) ).start()
-@socketio.on("stop_bot") def stop_bot(): global bot_running bot_running = False
-final_profit_loss = sum(trade["profitLoss"] for trade in trade_history)
-socketio.emit("bot_stopped", final_profit_loss) if __name__ == "__main__":
-threading.Thread(target=simulate_price, args=("bitcoin",)).start()
-socketio.run(app, debug=True)
+//         // Display trade summary
+//         const summary = document.createElement("div");
+//         summary.textContent = `Total Profit/Loss: $${total_profit_loss.toFixed(
+//           2
+//         )}`;
+//         summary.style.color = total_profit_loss >= 0 ? "limegreen" : "red";
+//         summary.style.fontWeight = "bold";
+//         summary.style.marginTop = "20px";
+
+//         const tradeHistory = document.getElementById("tradeHistory");
+//         tradeHistory.appendChild(summary);
+//       });
+
+//       // Update trade history
+//       socket.on("trade_update", function (data) {
+//         const { action, price, profitLoss, balance } = data;
+//         const historyContent = document.getElementById("historyContent");
+
+//         const tradeEntry = document.createElement("div");
+//         tradeEntry.textContent = `${action.toUpperCase()} @ $${price.toFixed(
+//           2
+//         )} | Profit/Loss: $${profitLoss.toFixed(
+//           2
+//         )} | Balance: $${balance.toFixed(2)}`;
+//         tradeEntry.style.marginBottom = "10px";
+
+//         historyContent.prepend(tradeEntry);
+//       });
+
+//       // Listen for 'clear_chart' event to reset the chart
+//       socket.on("clear_chart", () => {
+//         priceChart.data.labels = [];
+//         priceChart.data.datasets[0].data = [];
+//         priceChart.update();
+//       });
+//     </script>
+//   </body>
+// </html>
